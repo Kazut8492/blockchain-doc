@@ -1,0 +1,18 @@
+# Node.js の依存ディレクトリ
+node_modules/
+
+# ビルド成果物のディレクトリ
+dist/
+build/
+
+# ログファイル
+logs/
+*.log
+npm-debug.log*
+
+# OS 固有のファイル
+.DS_Store
+Thumbs.db
+
+# 環境変数ファイル（機密情報）
+.env
