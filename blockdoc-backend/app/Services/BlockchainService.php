@@ -3,14 +3,17 @@
 namespace App\Services;
 
 use App\Models\Document;
-use App\Services\Web3\Promise; // カスタムPromiseクラスをインポート
+use App\Services\Web3\Promise;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Web3\Web3;
 use Web3\Contract;
 use Web3\Providers\HttpProvider;
 use Web3\RequestManagers\HttpRequestManager;
+use Web3\Utils;
+use Web3\Eth;
+use kornrunner\Ethereum\Transaction;
+use Web3\Formatters\HexFormatter;
 
 class BlockchainService
 {
@@ -186,12 +189,21 @@ class BlockchainService
     public function registerDocument(Document $document)
     {
         try {
-            // No need to initialize contract address again, it's done in constructor
+            // Log important information
+            Log::info('Attempting to register document with hash: ' . $document->hash);
+            Log::info('Using contract address: ' . $this->contractAddress);
+            Log::info('Using account address: ' . $this->accountAddress);
+            Log::info('Private key length: ' . strlen($this->privateKey));
             
-            // Prepare the transaction - Sepolia might need different gas settings
-            $gas = config('blockchain.gas_limit', 200000);
+            // IMPORTANT: Get the encoded data for the contract call
+            // This creates the function signature and parameters formatted for the EVM
+            $data = $this->contract->getData('registerDocument', $document->hash);
+            if (!$data) {
+                Log::error('Failed to encode contract method data');
+                return false;
+            }
             
-            // Get current gas price from the network and add a bit more for Sepolia testnet
+            // Get current gas price
             $gasPrice = null;
             $gasPricePromise = new Promise(function ($resolve, $reject) use (&$gasPrice) {
                 $this->web3->eth->gasPrice(function ($err, $price) use (&$gasPrice, $resolve, $reject) {
@@ -204,8 +216,6 @@ class BlockchainService
                     $resolve($price);
                 });
             });
-            
-            // Wait for gas price to be resolved
             $gasPricePromise->wait();
             
             if (!$gasPrice) {
@@ -213,48 +223,112 @@ class BlockchainService
                 $gasPrice = '0x' . dechex(50 * pow(10, 9));
             }
             
-            // Set up promise for sending transaction
-            $transactionPromise = new Promise(function ($resolve, $reject) use ($document, $gas, $gasPrice) {
-                Log::info('Attempting to register document with hash: ' . $document->hash);
-                Log::info('Using contract address: ' . $this->contractAddress);
-                Log::info('Using account address: ' . $this->accountAddress);
-                Log::info('Private key length: ' . strlen($this->privateKey));
-                // For non-signed transactions, we need the private key
-                $this->contract->at($this->contractAddress)->send(
-                    'registerDocument',
-                    $document->hash,
-                    [
-                        'from' => $this->accountAddress,
-                        'gas' => '0x' . dechex($gas),
-                        'gasPrice' => $gasPrice,
-                        // Include the private key for transaction signing
-                        'key' => $this->privateKey
-                    ],
-                    function ($err, $transactionHash) use ($document, $resolve, $reject) {
+            // Get nonce for the account
+            $nonce = null;
+            $noncePromise = new Promise(function ($resolve, $reject) use (&$nonce) {
+                $this->web3->eth->getTransactionCount(
+                    $this->accountAddress,
+                    'pending',
+                    function ($err, $count) use (&$nonce, $resolve, $reject) {
                         if ($err) {
-                            Log::error('Blockchain registration error: ' . $err->getMessage());
+                            Log::error('Error getting nonce: ' . $err->getMessage());
                             $reject($err);
                             return;
                         }
                         
-                        // Update document with transaction hash
-                        $document->transaction_hash = $transactionHash;
-                        $document->blockchain_network = config('blockchain.network_name', 'Sepolia Testnet');
-                        $document->save();
-                        
-                        Log::info('Document registered on blockchain: ' . $transactionHash);
-                        $resolve($transactionHash);
+                        $nonce = hexdec($count);
+                        Log::info('Current nonce: ' . $nonce);
+                        $resolve($nonce);
                     }
                 );
             });
+            $noncePromise->wait();
             
-            // Wait for transaction to be sent
-            $transactionPromise->wait();
+            if ($nonce === null) {
+                Log::error('Failed to get nonce');
+                return false;
+            }
             
-            // Start checking for transaction confirmation
-            $this->checkTransactionConfirmation($document);
+            // Set gas limit
+            $gas = config('blockchain.gas_limit', 200000);
             
-            return true;
+            // *** DIRECT RPC METHOD APPROACH ***
+            // We'll directly use the Alchemy API to send the raw transaction
+            
+            // 1. Prepare transaction parameters
+            $txParams = [
+                'nonce' => '0x' . dechex($nonce),
+                'gasPrice' => $gasPrice, 
+                'gas' => '0x' . dechex($gas),
+                'to' => $this->contractAddress,
+                'value' => '0x0',
+                'data' => $data, // The encoded contract method call
+                'chainId' => '0xaa36a7' // 11155111 for Sepolia
+            ];
+            
+            // 2. Create and sign the transaction
+            // Make sure to require the package: composer require kornrunner/ethereum-offline-raw-tx
+            try {
+                // Convert gasPrice to decimal if it's in hex
+                $gasPriceValue = is_string($gasPrice) && substr($gasPrice, 0, 2) === '0x' 
+                    ? hexdec($gasPrice) 
+                    : $gasPrice;
+                
+                // Create transaction object
+                $transaction = new Transaction(
+                    $nonce,
+                    $gasPriceValue,
+                    $gas,
+                    $this->contractAddress,
+                    0, // value
+                    $data, 
+                    11155111 // chainId for Sepolia
+                );
+                
+                // Sign the transaction
+                $signedTransaction = '0x' . $transaction->getRaw($this->privateKey);
+                Log::info('Transaction signed successfully');
+                
+                // 3. Send the raw transaction
+                $providerUrl = config('blockchain.provider_url');
+                $response = Http::post($providerUrl, [
+                    'jsonrpc' => '2.0',
+                    'method' => 'eth_sendRawTransaction',
+                    'params' => [$signedTransaction],
+                    'id' => 1
+                ]);
+                
+                $result = $response->json();
+                
+                if (isset($result['error'])) {
+                    Log::error('RPC error sending transaction: ' . json_encode($result['error']));
+                    return false;
+                }
+                
+                if (isset($result['result'])) {
+                    $transactionHash = $result['result'];
+                    
+                    // Update document with transaction hash
+                    $document->transaction_hash = $transactionHash;
+                    $document->blockchain_network = config('blockchain.network_name', 'Sepolia Testnet');
+                    $document->save();
+                    
+                    Log::info('Document registered on blockchain: ' . $transactionHash);
+                    
+                    // Check for transaction confirmation
+                    $this->checkTransactionConfirmation($document);
+                    
+                    return true;
+                }
+                
+                Log::error('Unexpected response from RPC: ' . json_encode($result));
+                return false;
+                
+            } catch (\Exception $e) {
+                Log::error('Error signing or sending transaction: ' . $e->getMessage());
+                return false;
+            }
+            
         } catch (\Exception $e) {
             Log::error('Blockchain service error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return false;
