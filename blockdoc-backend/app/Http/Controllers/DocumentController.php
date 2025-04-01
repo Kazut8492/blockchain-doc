@@ -58,6 +58,7 @@ class DocumentController extends Controller
             $document->path = $path;
             $document->user_id = Auth::id();
             $document->blockchain_status = 'pending';
+            $document->blockchain_network = config('blockchain.network_name', 'Sepolia Testnet');
             $document->save();
             
             Log::info('Document saved with hash: ' . $hash);

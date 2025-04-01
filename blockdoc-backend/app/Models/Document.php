@@ -12,15 +12,20 @@ class Document extends Model
     protected $fillable = [
         'user_id',
         'filename',
+        'original_filename',
+        'mime_type',
+        'size',
         'path',
         'hash',
         'blockchain_status',
         'transaction_hash',
+        'blockchain_network',
         'blockchain_timestamp'
     ];
 
     protected $casts = [
         'blockchain_timestamp' => 'datetime',
+        'size' => 'integer',
     ];
 
     public function user()

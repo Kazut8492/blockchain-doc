@@ -9,6 +9,8 @@ return [
     
     // Account address used for sending transactions
     'account_address' => env('BLOCKCHAIN_ACCOUNT_ADDRESS'),
+
+    'network_name' => env('BLOCKCHAIN_NETWORK_NAME', 'Sepolia Testnet'),
     
     // Private key for the account (stored securely)
     'private_key' => env('BLOCKCHAIN_PRIVATE_KEY'),

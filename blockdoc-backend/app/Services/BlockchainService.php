@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Document;
+use App\Services\Web3\Promise; // カスタムPromiseクラスをインポート
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -192,7 +193,7 @@ class BlockchainService
             
             // Get current gas price from the network and add a bit more for Sepolia testnet
             $gasPrice = null;
-            $gasPricePromise = new \Web3\Promise(function ($resolve, $reject) use (&$gasPrice) {
+            $gasPricePromise = new Promise(function ($resolve, $reject) use (&$gasPrice) {
                 $this->web3->eth->gasPrice(function ($err, $price) use (&$gasPrice, $resolve, $reject) {
                     if ($err) {
                         Log::error('Error getting gas price: ' . $err->getMessage());
@@ -213,14 +214,21 @@ class BlockchainService
             }
             
             // Set up promise for sending transaction
-            $transactionPromise = new \Web3\Promise(function ($resolve, $reject) use ($document, $gas, $gasPrice) {
-                $this->contract->send(
+            $transactionPromise = new Promise(function ($resolve, $reject) use ($document, $gas, $gasPrice) {
+                Log::info('Attempting to register document with hash: ' . $document->hash);
+                Log::info('Using contract address: ' . $this->contractAddress);
+                Log::info('Using account address: ' . $this->accountAddress);
+                Log::info('Private key length: ' . strlen($this->privateKey));
+                // For non-signed transactions, we need the private key
+                $this->contract->at($this->contractAddress)->send(
                     'registerDocument',
                     $document->hash,
                     [
                         'from' => $this->accountAddress,
                         'gas' => '0x' . dechex($gas),
-                        'gasPrice' => $gasPrice
+                        'gasPrice' => $gasPrice,
+                        // Include the private key for transaction signing
+                        'key' => $this->privateKey
                     ],
                     function ($err, $transactionHash) use ($document, $resolve, $reject) {
                         if ($err) {
@@ -256,7 +264,7 @@ class BlockchainService
     public function checkTransactionConfirmation(Document $document)
     {
         try {
-            $receiptPromise = new \Web3\Promise(function ($resolve, $reject) use ($document) {
+            $receiptPromise = new Promise(function ($resolve, $reject) use ($document) {
                 $this->web3->eth->getTransactionReceipt($document->transaction_hash, function ($err, $receipt) use ($document, $resolve, $reject) {
                     if ($err) {
                         Log::error('Error checking transaction: ' . $err->getMessage());
@@ -300,7 +308,7 @@ class BlockchainService
     {
         try {
             $confirmed = false;
-            $statusPromise = new \Web3\Promise(function ($resolve, $reject) use ($transactionHash, &$confirmed) {
+            $statusPromise = new Promise(function ($resolve, $reject) use ($transactionHash, &$confirmed) {
                 $this->web3->eth->getTransactionReceipt($transactionHash, function ($err, $receipt) use (&$confirmed, $resolve, $reject) {
                     if ($err) {
                         Log::error('Error checking transaction: ' . $err->getMessage());
@@ -340,7 +348,7 @@ class BlockchainService
             $verified = false;
             $timestamp = 0;
             
-            $verifyPromise = new \Web3\Promise(function ($resolve, $reject) use ($hash, &$verified, &$timestamp) {
+            $verifyPromise = new Promise(function ($resolve, $reject) use ($hash, &$verified, &$timestamp) {
                 $this->contract->call('verifyDocument', $hash, function ($err, $result) use (&$verified, &$timestamp, $resolve, $reject, $hash) {
                     if ($err) {
                         Log::error('Blockchain verification error: ' . $err->getMessage());

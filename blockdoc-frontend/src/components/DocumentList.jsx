@@ -7,23 +7,50 @@ const DocumentList = () => {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    lastPage: 1,
+    perPage: 10,
+    total: 0
+  });
+
+  const fetchDocuments = async (page = 1) => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`/api/documents?page=${page}`);
+      
+      // Laravel's paginate response has a 'data' property with the actual items
+      if (response.data.data) {
+        // We're dealing with a paginated response
+        setDocuments(response.data.data);
+        setPagination({
+          currentPage: response.data.current_page,
+          lastPage: response.data.last_page,
+          perPage: response.data.per_page,
+          total: response.data.total
+        });
+      } else {
+        // Not paginated, just use the whole response
+        setDocuments(response.data);
+      }
+      
+      setLoading(false);
+    } catch (err) {
+      console.error('Error fetching documents:', err);
+      setError('Error fetching documents: ' + (err.response?.data?.message || err.message));
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchDocuments = async () => {
-      try {
-        const response = await axios.get('/api/documents');
-        setDocuments(response.data);
-        setLoading(false);
-      } catch (err) {
-        setError('Error fetching documents');
-        setLoading(false);
-      }
-    };
-
     fetchDocuments();
   }, []);
 
-  if (loading) return <div>Loading documents...</div>;
+  const handlePageChange = (page) => {
+    fetchDocuments(page);
+  };
+
+  if (loading && documents.length === 0) return <div>Loading documents...</div>;
   if (error) return <div className="error-message">{error}</div>;
 
   return (
@@ -36,30 +63,67 @@ const DocumentList = () => {
           <Link to="/upload" className="btn-primary">Upload Your First Document</Link>
         </div>
       ) : (
-        <div className="documents-grid">
-          {documents.map(doc => (
-            <div key={doc.id} className="document-card">
-              <div className="document-icon">
-                <i className="far fa-file-pdf"></i>
-              </div>
-              <div className="document-details">
-                <h3>{doc.filename}</h3>
-                <p>Uploaded: {new Date(doc.created_at).toLocaleDateString()}</p>
-                <p className="hash-preview">Hash: {doc.hash.substring(0, 16)}...</p>
-                <div className="blockchain-status">
-                  {doc.blockchain_status === 'confirmed' ? (
-                    <span className="status-confirmed">Verified on Blockchain</span>
-                  ) : (
-                    <span className="status-pending">Pending Confirmation</span>
-                  )}
+        <>
+          <div className="documents-grid">
+            {documents.map(doc => (
+              <div key={doc.id} className="document-card">
+                <div className="document-icon">
+                  <i className="far fa-file-pdf"></i>
+                </div>
+                <div className="document-details">
+                  <h3>{doc.original_filename || doc.filename}</h3>
+                  <p>Uploaded: {new Date(doc.created_at).toLocaleDateString()}</p>
+                  <p className="hash-preview">Hash: {doc.hash.substring(0, 16)}...</p>
+                  <div className="blockchain-status">
+                    {doc.blockchain_status === 'confirmed' ? (
+                      <span className="status-confirmed">Verified on Blockchain</span>
+                    ) : doc.blockchain_status === 'failed' ? (
+                      <span className="status-failed">Verification Failed</span>
+                    ) : (
+                      <span className="status-pending">Pending Confirmation</span>
+                    )}
+                  </div>
+                </div>
+                <div className="document-actions">
+                  <Link to={`/documents/${doc.id}`} className="btn-secondary">View</Link>
+                  <a 
+                    href={`/api/documents/${doc.id}/download`} 
+                    className="btn-secondary"
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                  >
+                    Download
+                  </a>
                 </div>
               </div>
-              <div className="document-actions">
-                <Link to={`/documents/${doc.id}`} className="btn-secondary">View</Link>
-              </div>
+            ))}
+          </div>
+          
+          {/* Pagination controls */}
+          {pagination.lastPage > 1 && (
+            <div className="pagination">
+              <button 
+                onClick={() => handlePageChange(pagination.currentPage - 1)}
+                disabled={pagination.currentPage === 1}
+                className="btn-secondary"
+              >
+                Previous
+              </button>
+              
+              <span className="page-info">
+                Page {pagination.currentPage} of {pagination.lastPage}
+              </span>
+              
+              <button 
+                onClick={() => handlePageChange(pagination.currentPage + 1)}
+                disabled={pagination.currentPage === pagination.lastPage}
+                className="btn-secondary"
+              >
+                Next
+              </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );
