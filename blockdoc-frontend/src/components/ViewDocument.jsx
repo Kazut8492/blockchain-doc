@@ -2,15 +2,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Document, Page, pdfjs } from 'react-pdf';
-
-pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+import { Worker, Viewer } from '@react-pdf-viewer/core';
+import '@react-pdf-viewer/core/lib/styles/index.css';
 
 const ViewDocument = () => {
   const { id } = useParams();
-  const [document, setDocument] = useState(null);
-  const [numPages, setNumPages] = useState(null);
-  const [pageNumber, setPageNumber] = useState(1);
+  const [documentData, setDocumentData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -18,7 +15,7 @@ const ViewDocument = () => {
     const fetchDocument = async () => {
       try {
         const response = await axios.get(`api/documents/${id}`);
-        setDocument(response.data);
+        setDocumentData(response.data);
         setLoading(false);
       } catch (err) {
         setError('Error fetching document');
@@ -29,40 +26,24 @@ const ViewDocument = () => {
     fetchDocument();
   }, [id]);
 
-  const onDocumentLoadSuccess = ({ numPages }) => {
-    setNumPages(numPages);
-  };
-
-  const goToPrevPage = () => {
-    if (pageNumber > 1) {
-      setPageNumber(pageNumber - 1);
-    }
-  };
-
-  const goToNextPage = () => {
-    if (pageNumber < numPages) {
-      setPageNumber(pageNumber + 1);
-    }
-  };
-
   if (loading) return <div>Loading document...</div>;
   if (error) return <div className="error-message">{error}</div>;
-  if (!document) return <div className="error-message">Document not found</div>;
+  if (!documentData) return <div className="error-message">Document not found</div>;
 
   return (
     <div className="view-document">
-      <h1>{document.filename}</h1>
+      <h1>{documentData.filename}</h1>
       
       <div className="document-details">
-        <p>Uploaded: {new Date(document.created_at).toLocaleDateString()}</p>
-        <p className="hash">SHA512 Hash: {document.hash}</p>
+        <p>Uploaded: {new Date(documentData.created_at).toLocaleDateString()}</p>
+        <p className="hash">SHA512 Hash: {documentData.hash}</p>
         <div className="blockchain-status">
-          {document.blockchain_status === 'confirmed' ? (
+          {documentData.blockchain_status === 'confirmed' ? (
             <div className="status-confirmed">
               <p>Verified on Blockchain</p>
-              <p>Transaction Hash: {document.transaction_hash}</p>
+              <p>Transaction Hash: {documentData.transaction_hash}</p>
               <a 
-                href={`https://etherscan.io/tx/${document.transaction_hash}`} 
+                href={`https://etherscan.io/tx/${documentData.transaction_hash}`} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="etherscan-link"
@@ -79,32 +60,10 @@ const ViewDocument = () => {
       </div>
       
       <div className="pdf-viewer">
-        <Document
-          file={`/api/documents/${id}/download`}
-          onLoadSuccess={onDocumentLoadSuccess}
-        >
-          <Page pageNumber={pageNumber} />
-        </Document>
-        
-        <div className="pdf-controls">
-          <button 
-            onClick={goToPrevPage} 
-            disabled={pageNumber <= 1}
-            className="btn-secondary"
-          >
-            Previous
-          </button>
-          <p>
-            Page {pageNumber} of {numPages}
-          </p>
-          <button 
-            onClick={goToNextPage} 
-            disabled={pageNumber >= numPages}
-            className="btn-secondary"
-          >
-            Next
-          </button>
-        </div>
+        <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js">
+          {/* Due to Cors issue, the fileUrl must be a full URL. */}
+          <Viewer fileUrl={`http://localhost:8000/api/documents/${id}/download`} />
+        </Worker>
       </div>
     </div>
   );

@@ -11,6 +11,7 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
         "php-http/guzzle7-adapter": "^1.1",
+        "predis/predis": "^2.3",
         "spatie/laravel-medialibrary": "^11.12",
         "web3p/web3.php": "^0.1.6"
     },
