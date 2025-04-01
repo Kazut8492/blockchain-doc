@@ -1,12 +1,32 @@
-// components/VerifyDocument.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 const VerifyDocument = () => {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [verificationResult, setVerificationResult] = useState(null);
+  const [progress, setProgress] = useState(0);
+  const [useChunks, setUseChunks] = useState(false);
+  const [systemMaxUploadSize, setSystemMaxUploadSize] = useState(0);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Get the system's maximum upload size on component mount
+    const fetchMaxUploadSize = async () => {
+      try {
+        const response = await axios.get('api/system/max-upload-size');
+        const maxBytes = response.data.max_upload_size;
+        setSystemMaxUploadSize(maxBytes);
+      } catch (err) {
+        console.error('Failed to get max upload size, defaulting to 2MB');
+        setSystemMaxUploadSize(2 * 1024 * 1024); // Default to 2MB if server doesn't provide info
+      }
+    };
+
+    fetchMaxUploadSize();
+  }, []);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -14,9 +34,81 @@ const VerifyDocument = () => {
       setFile(selectedFile);
       setError('');
       setVerificationResult(null);
+      
+      // Check if we need to use chunked upload based on file size
+      if (selectedFile.size > systemMaxUploadSize && systemMaxUploadSize > 0) {
+        setUseChunks(true);
+        console.log(`File size ${selectedFile.size} exceeds system limit ${systemMaxUploadSize}. Using chunked upload.`);
+      } else {
+        setUseChunks(false);
+      }
     } else {
       setFile(null);
       setError('Please select a valid PDF file');
+    }
+  };
+
+  const verifyWithChunks = async (file) => {
+    setLoading(true);
+    setProgress(0);
+    setError('');
+    
+    const chunkSize = 1024 * 1024; // 1MB chunks
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    const chunkId = Date.now().toString();
+    
+    try {
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * chunkSize;
+            const end = Math.min(file.size, start + chunkSize);
+            const chunk = file.slice(start, end);
+            
+            const formData = new FormData();
+            formData.append('chunk', chunk);
+            formData.append('index', i);
+            formData.append('totalChunks', totalChunks);
+            formData.append('filename', file.name);
+            formData.append('chunkId', chunkId);
+            
+            const response = await axios.post('api/upload-chunk', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            
+            // 進捗更新
+            const newProgress = Math.round(((i + 1) / totalChunks) * 100);
+            setProgress(newProgress);
+            
+            // 最終チャンクのレスポンスを処理
+            if (response.data.document) {
+                setLoading(false);
+                navigate('/');
+                return;
+            }
+        }
+    } catch (err) {
+        setLoading(false);
+        setError(err.response?.data?.message || 'Error uploading document');
+    }
+  };
+
+  const verifyWithRegularUpload = async (file) => {
+    setLoading(true);
+    setError('');
+    setVerificationResult(null);
+
+    const formData = new FormData();
+    formData.append('document', file);
+
+    try {
+      const response = await axios.post('api/verify', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      setVerificationResult(response.data);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error verifying document');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -27,25 +119,10 @@ const VerifyDocument = () => {
       return;
     }
 
-    setLoading(true);
-    setError('');
-    setVerificationResult(null);
-
-    const formData = new FormData();
-    formData.append('document', file);
-
-    try {
-      const response = await axios.post('api/verify', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-      
-      setVerificationResult(response.data);
-      setLoading(false);
-    } catch (err) {
-      setLoading(false);
-      setError(err.response?.data?.message || 'Error verifying document');
+    if (useChunks) {
+      await verifyWithChunks(file);
+    } else {
+      await verifyWithRegularUpload(file);
     }
   };
 
@@ -65,6 +142,12 @@ const VerifyDocument = () => {
             accept="application/pdf" 
             onChange={handleFileChange} 
           />
+          {file && file.size > 2 * 1024 * 1024 && (
+            <div className="file-size-notice">
+              Large file detected ({(file.size / (1024 * 1024)).toFixed(2)} MB)
+              {useChunks && <span> - Will use chunked upload</span>}
+            </div>
+          )}
         </div>
         
         <button 
@@ -75,6 +158,18 @@ const VerifyDocument = () => {
           {loading ? 'Verifying...' : 'Verify Document'}
         </button>
       </form>
+      
+      {loading && (
+        <div className="upload-progress">
+          <div className="progress-bar">
+            <div 
+              className="progress-bar-fill" 
+              style={{ width: `${progress}%` }}
+            ></div>
+          </div>
+          <div className="progress-text">{progress}% processed</div>
+        </div>
+      )}
       
       {verificationResult && (
         <div className={`verification-result ${verificationResult.verified ? 'verified' : 'not-verified'}`}>
@@ -87,18 +182,32 @@ const VerifyDocument = () => {
               <p>Registered on: {new Date(verificationResult.timestamp).toLocaleString()}</p>
               <p>Transaction Hash: {verificationResult.transaction_hash}</p>
               <a 
-                href={`https://etherscan.io/tx/${verificationResult.transaction_hash}`} 
+                href={`https://sepolia.etherscan.io/tx/${verificationResult.transaction_hash}`} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="etherscan-link"
               >
                 View on Etherscan
               </a>
+              
+              {verificationResult.warning && (
+                <div className="warning-message">
+                  Warning: {verificationResult.warning}
+                </div>
+              )}
             </div>
           ) : (
             <div className="verification-details">
-              <p>This document has not been registered on our blockchain.</p>
+              <p>{verificationResult.message}</p>
               <p>Document Hash: {verificationResult.hash}</p>
+              
+              {verificationResult.status === 'pending' && (
+                <p>Your document is being processed. Please check back later.</p>
+              )}
+              
+              {verificationResult.status === 'failed' && (
+                <p>Document registration failed. Please try uploading again.</p>
+              )}
             </div>
           )}
         </div>

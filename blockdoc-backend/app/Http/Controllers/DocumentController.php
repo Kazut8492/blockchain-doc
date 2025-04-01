@@ -23,10 +23,12 @@ class DocumentController extends Controller
      */
     public function store(Request $request)
     {
+        $maxUpload = $this->getMaximumFileUploadSize();
+    
         $request->validate([
-            'document' => 'required|file|mimes:pdf|max:10240', // 10MB max
+            'document' => 'required|file|mimes:pdf|max:' . ($maxUpload / 1024),
         ]);
-
+    
         try {
             $file = $request->file('document');
             $filename = time() . '_' . $file->getClientOriginalName();
@@ -34,9 +36,18 @@ class DocumentController extends Controller
             // Store file
             $path = $file->storeAs('documents', $filename);
             
-            // Generate file hash
-            $fileContent = file_get_contents($file->getRealPath());
-            $hash = hash('sha512', $fileContent);
+            // ストリーミング処理でファイルハッシュを計算
+            $hashContext = hash_init('sha512');
+            $handle = fopen(storage_path('app/private/' . $path), 'rb');
+            if ($handle === false) {
+                throw new \Exception("Failed to open file for hashing");
+            }
+            while (!feof($handle)) {
+                $buffer = fread($handle, 8192);
+                hash_update($hashContext, $buffer);
+            }
+            fclose($handle);
+            $hash = hash_final($hashContext);
             
             // Check if document with this hash already exists
             $existingDocument = Document::where('hash', $hash)->first();
@@ -56,7 +67,7 @@ class DocumentController extends Controller
             $document->size = $file->getSize();
             $document->hash = $hash;
             $document->path = $path;
-            $document->user_id = Auth::id();
+            $document->user_id = null;
             $document->blockchain_status = 'pending';
             $document->blockchain_network = config('blockchain.network_name', 'Sepolia Testnet');
             $document->save();
@@ -93,6 +104,25 @@ class DocumentController extends Controller
         }
     }
     
+    // PHP の最大アップロードサイズを取得するヘルパーメソッド
+    private function getMaximumFileUploadSize()
+    {
+        // ストリームラッパーでの最大サイズを計算
+        $upload_max_filesize = $this->parseSize(ini_get('upload_max_filesize'));
+        $post_max_size = $this->parseSize(ini_get('post_max_size'));
+        return min($upload_max_filesize, $post_max_size);
+    }
+
+    private function parseSize($size)
+    {
+        $unit = preg_replace('/[^bkmgtpezy]/i', '', $size);
+        $size = preg_replace('/[^0-9\.]/', '', $size);
+        if ($unit) {
+            return round($size * pow(1024, stripos('bkmgtpezy', $unit[0])));
+        }
+        return round($size);
+    }
+
     /**
      * Display the specified document
      */
