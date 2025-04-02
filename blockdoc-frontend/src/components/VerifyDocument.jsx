@@ -52,6 +52,7 @@ const VerifyDocument = () => {
     setLoading(true);
     setProgress(0);
     setError('');
+    setVerificationResult(null);
     
     const chunkSize = 1024 * 1024; // 1MB chunks
     const totalChunks = Math.ceil(file.size / chunkSize);
@@ -70,24 +71,42 @@ const VerifyDocument = () => {
             formData.append('filename', file.name);
             formData.append('chunkId', chunkId);
             
-            const response = await axios.post('api/upload-chunk', formData, {
+            console.log(`Sending chunk ${i+1}/${totalChunks} to /api/verify-chunk`);
+            
+            // Call the verify-chunk endpoint instead of upload-chunk
+            const response = await axios.post('api/verify-chunk', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
             
-            // 進捗更新
+            console.log(`Chunk ${i+1} response:`, response.data);
+            
+            // Update progress
             const newProgress = Math.round(((i + 1) / totalChunks) * 100);
             setProgress(newProgress);
             
-            // 最終チャンクのレスポンスを処理
-            if (response.data.document) {
+            // Check if this response contains verification results
+            // (should be the case for the last chunk)
+            if (response.data.verified !== undefined) {
+                console.log('Verification result received:', response.data);
+                setVerificationResult(response.data);
                 setLoading(false);
-                navigate('/');
                 return;
             }
+            
+            // If it's not the last chunk and we just got a status update, continue
+            if (response.data.status === 'chunk_received' && i < totalChunks - 1) {
+                continue;
+            }
         }
-    } catch (err) {
+        
+        // If we've processed all chunks but didn't get a verification result,
+        // show an error (this shouldn't happen with proper backend handling)
+        setError('Completed processing all chunks but did not receive verification result');
         setLoading(false);
-        setError(err.response?.data?.message || 'Error uploading document');
+    } catch (err) {
+        console.error('Error during chunked verification:', err);
+        setLoading(false);
+        setError(err.response?.data?.message || 'Error verifying document');
     }
   };
 
