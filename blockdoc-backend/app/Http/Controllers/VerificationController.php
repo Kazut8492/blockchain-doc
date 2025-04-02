@@ -24,9 +24,9 @@ class VerificationController extends Controller
 
         $file = $request->file('document');
         
-        // Generate SHA512 hash of the file
+        // Generate bytes32 compatible hash (keccak256)
         $fileContent = file_get_contents($file->getRealPath());
-        $hash = hash('sha512', $fileContent);
+        $hash = '0x' . substr(hash('sha3-256', $fileContent), 0, 64);
         
         // Log the hash for debugging
         Log::info('Verifying document with hash: ' . $hash);

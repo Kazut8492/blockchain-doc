@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use App\Services\BlockchainService;
 use Illuminate\Support\Facades\Log;
+use App\Jobs\RegisterDocumentOnBlockchain;
 
 class DocumentController extends Controller
 {
@@ -34,9 +35,10 @@ class DocumentController extends Controller
             // Store file
             $path = $file->storeAs('documents', $filename);
             
-            // Generate file hash
+            // Generate file hash - using keccak256 (Ethereum's hashing function)
             $fileContent = file_get_contents($file->getRealPath());
-            $hash = hash('sha512', $fileContent);
+            // Create a bytes32 compatible hash (keccak256)
+            $hash = '0x' . substr(hash('sha3-256', $fileContent), 0, 64);
             
             // Check if document with this hash already exists
             $existingDocument = Document::where('hash', $hash)->first();
@@ -62,22 +64,24 @@ class DocumentController extends Controller
             $document->save();
             
             Log::info('Document saved with hash: ' . $hash);
-            
-            // Register document on blockchain (asynchronously)
-            $registered = $this->blockchainService->registerDocument($document);
-            
-            if (!$registered) {
-                // If blockchain registration fails, still keep the document but mark as failed
-                $document->blockchain_status = 'failed';
-                $document->save();
+
+            try {
+                Log::info('Starting direct blockchain registration for document: ' . $document->id);
+                $registered = $this->blockchainService->registerDocument($document);
+                Log::info('Direct blockchain registration completed with result: ' . ($registered ? 'Success' : 'Failed'));
                 
-                Log::error('Failed to register document on blockchain: ' . $hash);
-                
-                return response()->json([
-                    'message' => 'Document saved but blockchain registration failed',
-                    'document' => $document
-                ], 500);
+                if ($registered && $document->transaction_hash) {
+                    Log::info('Transaction hash: ' . $document->transaction_hash);
+                    Log::info('View on Etherscan: https://sepolia.etherscan.io/tx/' . $document->transaction_hash);
+                } else {
+                    Log::error('Registration failed: ' . ($document->blockchain_error ?? 'Unknown error'));
+                }
+            } catch (\Exception $e) {
+                Log::error('Exception during direct blockchain registration: ' . $e->getMessage());
             }
+
+            // // OR Dispatch job to handle blockchain registration asynchronously
+            // RegisterDocumentOnBlockchain::dispatch($document);
             
             return response()->json([
                 'message' => 'Document uploaded and blockchain registration initiated',

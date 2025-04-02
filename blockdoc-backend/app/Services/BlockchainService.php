@@ -36,6 +36,9 @@ class BlockchainService
         $provider = new HttpProvider($requestManager);
         $this->web3 = new Web3($provider);
         
+        // Check account balance to log warnings about insufficient funds
+        $this->checkAccountBalance();
+        
         try {
             // Get ABI from the contract JSON file
             $contractAbi = json_decode(file_get_contents(storage_path('app/contract/DocumentVerification.json')), true);
@@ -48,27 +51,27 @@ class BlockchainService
             else if (isset($contractAbi['abi'])) {
                 $this->contract = new Contract($this->web3->provider, $contractAbi['abi']);
             }
-            // If neither format is found, use the default ABI
+            // If neither format is found, use the updated ABI
             else {
                 Log::warning('ABI format not recognized, using default ABI');
-                $this->contract = new Contract($this->web3->provider, $this->getDefaultContractAbi());
+                $this->contract = new Contract($this->web3->provider, $this->getUpdatedContractAbi());
             }
             
             // Set contract address immediately
             $this->contract->at($this->contractAddress);
         } catch (\Exception $e) {
             Log::error('Error loading contract ABI: ' . $e->getMessage());
-            // Fallback to default ABI
-            $this->contract = new Contract($this->web3->provider, $this->getDefaultContractAbi());
+            // Fallback to updated ABI
+            $this->contract = new Contract($this->web3->provider, $this->getUpdatedContractAbi());
             // Set contract address immediately
             $this->contract->at($this->contractAddress);
         }
     }
     
     /**
-     * Get the default contract ABI array directly
+     * Get the updated contract ABI array with bytes32 parameter types
      */
-    protected function getDefaultContractAbi()
+    protected function getUpdatedContractAbi()
     {
         return [
             [
@@ -80,10 +83,10 @@ class BlockchainService
                 "anonymous" => false,
                 "inputs" => [
                     [
-                        "indexed" => true,
-                        "internalType" => "string",
+                        "indexed" => false,
+                        "internalType" => "bytes32",
                         "name" => "documentHash",
-                        "type" => "string"
+                        "type" => "bytes32"
                     ],
                     [
                         "indexed" => false,
@@ -98,9 +101,9 @@ class BlockchainService
             [
                 "inputs" => [
                     [
-                        "internalType" => "string",
+                        "internalType" => "bytes32",
                         "name" => "documentHash",
-                        "type" => "string"
+                        "type" => "bytes32"
                     ]
                 ],
                 "name" => "getDocumentTimestamp",
@@ -130,9 +133,9 @@ class BlockchainService
             [
                 "inputs" => [
                     [
-                        "internalType" => "string",
+                        "internalType" => "bytes32",
                         "name" => "documentHash",
-                        "type" => "string"
+                        "type" => "bytes32"
                     ]
                 ],
                 "name" => "registerDocument",
@@ -162,9 +165,9 @@ class BlockchainService
             [
                 "inputs" => [
                     [
-                        "internalType" => "string",
+                        "internalType" => "bytes32",
                         "name" => "documentHash",
-                        "type" => "string"
+                        "type" => "bytes32"
                     ]
                 ],
                 "name" => "verifyDocument",
@@ -193,35 +196,28 @@ class BlockchainService
             Log::info('Attempting to register document with hash: ' . $document->hash);
             Log::info('Using contract address: ' . $this->contractAddress);
             Log::info('Using account address: ' . $this->accountAddress);
-            Log::info('Private key length: ' . strlen($this->privateKey));
+            
+            // Ensure hash is in the proper format for bytes32
+            $hashValue = $document->hash;
+            
+            // Debug the hash value
+            Log::info('Hash value format being sent to contract: ' . $hashValue);
             
             // IMPORTANT: Get the encoded data for the contract call
             // This creates the function signature and parameters formatted for the EVM
-            $data = $this->contract->getData('registerDocument', $document->hash);
+            $data = $this->contract->getData('registerDocument', $hashValue);
             if (!$data) {
                 Log::error('Failed to encode contract method data');
                 return false;
             }
             
-            // Get current gas price
-            $gasPrice = null;
-            $gasPricePromise = new Promise(function ($resolve, $reject) use (&$gasPrice) {
-                $this->web3->eth->gasPrice(function ($err, $price) use (&$gasPrice, $resolve, $reject) {
-                    if ($err) {
-                        Log::error('Error getting gas price: ' . $err->getMessage());
-                        $reject($err);
-                        return;
-                    }
-                    $gasPrice = $price;
-                    $resolve($price);
-                });
-            });
-            $gasPricePromise->wait();
+            // Log the encoded data for debugging
+            Log::info('Encoded contract method data: ' . $data);
             
-            if (!$gasPrice) {
-                // Default gas price (50 Gwei for Sepolia)
-                $gasPrice = '0x' . dechex(50 * pow(10, 9));
-            }
+            $gasPrice = 3 * pow(10, 9);
+            $gasPriceHex = '0x' . dechex($gasPrice);
+            
+            Log::info('Using fixed gas price: ' . $gasPriceGwei . ' Gwei (' . $gasPrice . ' Wei)');
             
             // Get nonce for the account
             $nonce = null;
@@ -248,36 +244,147 @@ class BlockchainService
                 Log::error('Failed to get nonce');
                 return false;
             }
-            
-            // Set gas limit
-            $gas = config('blockchain.gas_limit', 200000);
-            
-            // *** DIRECT RPC METHOD APPROACH ***
-            // We'll directly use the Alchemy API to send the raw transaction
-            
-            // 1. Prepare transaction parameters
-            $txParams = [
-                'nonce' => '0x' . dechex($nonce),
-                'gasPrice' => $gasPrice, 
-                'gas' => '0x' . dechex($gas),
-                'to' => $this->contractAddress,
-                'value' => '0x0',
-                'data' => $data, // The encoded contract method call
-                'chainId' => '0xaa36a7' // 11155111 for Sepolia
-            ];
-            
-            // 2. Create and sign the transaction
-            // Make sure to require the package: composer require kornrunner/ethereum-offline-raw-tx
-            try {
-                // Convert gasPrice to decimal if it's in hex
-                $gasPriceValue = is_string($gasPrice) && substr($gasPrice, 0, 2) === '0x' 
-                    ? hexdec($gasPrice) 
-                    : $gasPrice;
+
+            // // Replace your current nonce retrieval code with this direct HTTP approach
+            // $nonce = null;
+            // try {
+            //     // Get nonce directly via JSON-RPC
+            //     $response = Http::post(config('blockchain.provider_url'), [
+            //         'jsonrpc' => '2.0',
+            //         'method' => 'eth_getTransactionCount',
+            //         'params' => [$this->accountAddress, 'latest'],
+            //         'id' => 1
+            //     ]);
                 
-                // Create transaction object
+            //     $result = $response->json();
+                
+            //     if (isset($result['error'])) {
+            //         Log::error('Error getting nonce via direct RPC: ' . json_encode($result['error']));
+            //         return false;
+            //     }
+                
+            //     if (!isset($result['result'])) {
+            //         Log::error('Invalid response when getting nonce: ' . json_encode($result));
+            //         return false;
+            //     }
+                
+            //     $nonce = hexdec($result['result']);
+            //     Log::info('Nonce retrieved via direct RPC: ' . $nonce);
+                
+            //     // Sanity check - a nonce should never be this high
+            //     if ($nonce > 10000) {
+            //         Log::error('Nonce value appears invalid: ' . $nonce);
+            //         Log::info('Forcing nonce to 0 as a fallback');
+            //         $nonce = 0; // Force a low nonce as a test
+            //     }
+            // } catch (\Exception $e) {
+            //     Log::error('Exception getting nonce: ' . $e->getMessage());
+            //     return false;
+            // }
+
+            // Add this check after getting the nonce
+            if ($nonce > 100000) { // Unusually high nonce
+                Log::warning('Unusually high nonce detected: ' . $nonce . '. This might indicate an issue.');
+                
+                // Try with latest instead of pending
+                $latestNoncePromise = new Promise(function ($resolve, $reject) {
+                    $this->web3->eth->getTransactionCount(
+                        $this->accountAddress,
+                        'latest', // Use latest instead of pending
+                        function ($err, $count) use ($resolve, $reject) {
+                            if ($err) {
+                                Log::error('Error getting latest nonce: ' . $err->getMessage());
+                                $reject($err);
+                                return;
+                            }
+                            
+                            $latestNonce = hexdec($count);
+                            Log::info('Latest nonce: ' . $latestNonce);
+                            $resolve($latestNonce);
+                        }
+                    );
+                });
+                
+                try {
+                    $nonce = $latestNoncePromise->wait();
+                    Log::info('Using latest nonce instead: ' . $nonce);
+                } catch (\Exception $e) {
+                    Log::error('Error getting latest nonce: ' . $e->getMessage());
+                    // Continue with original nonce as fallback
+                }
+            }
+            
+            // Set a modest gas limit
+            $gas = 80000; // Lower than before
+            Log::info('Using gas limit: ' . $gas);
+
+            // Calculate costs with detailed logging
+            $costInWei = $gasPrice * $gas;
+            $costInEth = $costInWei / pow(10, 18);
+            $balanceWei = $this->document->balance; // Make sure this is defined
+            
+            // Calculate the estimated cost
+            $estimatedCost = $gasPrice * $gas;
+            $estimatedCostEth = $estimatedCost / pow(10, 18);
+            Log::info('Estimated transaction cost: ' . $estimatedCostEth . ' ETH');
+            
+            // Check account balance (optional, since we're using very low gas)
+            $balancePromise = new Promise(function ($resolve, $reject) {
+                $this->web3->eth->getBalance($this->accountAddress, 'latest', function ($err, $balance) use ($resolve, $reject) {
+                    if ($err) {
+                        Log::error('Error checking account balance: ' . $err->getMessage());
+                        $reject($err);
+                        return;
+                    }
+                    $resolve($balance);
+                });
+            });
+            
+            try {
+                $balance = $balancePromise->wait();
+                
+                // Convert balance to decimal
+                if (is_object($balance) && method_exists($balance, 'toString')) {
+                    $balanceWei = $balance->toString();
+                } else if (substr((string)$balance, 0, 2) === '0x') {
+                    $balanceWei = hexdec((string)$balance);
+                } else {
+                    $balanceWei = (string)$balance;
+                }
+                
+                $balanceEth = $balanceWei / pow(10, 18);
+                Log::info('Current account balance: ' . $balanceEth . ' ETH');
+                
+                // Check if we have enough funds
+                if ($balanceWei < $estimatedCost) {
+                    Log::error('Insufficient funds for transaction. Need: ' . $estimatedCostEth . ' ETH, Have: ' . $balanceEth . ' ETH');
+                    $document->blockchain_status = 'failed';
+                    $document->save();
+                    return false;
+                }
+            } catch (\Exception $e) {
+                Log::warning('Could not check balance, proceeding anyway: ' . $e->getMessage());
+                // Continue anyway since we're using very low gas
+            }
+
+            Log::info('Transaction cost calculation:');
+            Log::info('- Gas price: ' . ($gasPrice / pow(10, 9)) . ' Gwei (' . $gasPrice . ' Wei)');
+            Log::info('- Gas limit: ' . $gas);
+            Log::info('- Cost in Wei: ' . $costInWei);
+            Log::info('- Cost in ETH: ' . $costInEth);
+            Log::info('- Available balance in ETH: ' . ($balanceWei / pow(10, 18)));
+
+            if ($costInWei > $balanceWei) {
+                Log::error('INSUFFICIENT FUNDS: Need ' . $costInEth . ' ETH, have ' . ($balanceWei / pow(10, 18)) . ' ETH');
+            } else {
+                Log::info('FUNDS SUFFICIENT: Cost is ' . $costInEth . ' ETH, have ' . ($balanceWei / pow(10, 18)) . ' ETH');
+            }
+            
+            // Create transaction object
+            try {
                 $transaction = new Transaction(
                     $nonce,
-                    $gasPriceValue,
+                    $gasPrice,  // Use our fixed low gas price
                     $gas,
                     $this->contractAddress,
                     0, // value
@@ -289,7 +396,7 @@ class BlockchainService
                 $signedTransaction = '0x' . $transaction->getRaw($this->privateKey);
                 Log::info('Transaction signed successfully');
                 
-                // 3. Send the raw transaction
+                // Send the raw transaction
                 $providerUrl = config('blockchain.provider_url');
                 $response = Http::post($providerUrl, [
                     'jsonrpc' => '2.0',
@@ -298,10 +405,28 @@ class BlockchainService
                     'id' => 1
                 ]);
                 
+                // Log full response for debugging
+                Log::info('RPC response: ' . $response->body());
+                
                 $result = $response->json();
                 
                 if (isset($result['error'])) {
+                    // Log the full error for debugging
                     Log::error('RPC error sending transaction: ' . json_encode($result['error']));
+                    
+                    // Check specifically for insufficient funds errors
+                    $errorMessage = $result['error']['message'] ?? '';
+                    if (stripos($errorMessage, 'insufficient funds') !== false || 
+                        stripos($errorMessage, 'insufficient balance') !== false) {
+                        Log::critical('INSUFFICIENT FUNDS ERROR: The account does not have enough ETH to pay for gas fees. ' .
+                                    'Account: ' . $this->accountAddress . 
+                                    ', Gas Price: ' . ($gasPrice / pow(10, 9)) . ' Gwei' .
+                                    ', Gas Limit: ' . $gas);
+                    }
+                    
+                    // Update document status to reflect the error
+                    $document->blockchain_status = 'failed';
+                    $document->save();
                     return false;
                 }
                 
@@ -310,12 +435,51 @@ class BlockchainService
                     
                     // Update document with transaction hash
                     $document->transaction_hash = $transactionHash;
+                    $document->blockchain_status = 'pending';
                     $document->blockchain_network = config('blockchain.network_name', 'Sepolia Testnet');
                     $document->save();
                     
-                    Log::info('Document registered on blockchain: ' . $transactionHash);
+                    Log::info('Document registered on blockchain with transaction hash: ' . $transactionHash);
+                    Log::info('Verify transaction on Etherscan: https://sepolia.etherscan.io/tx/' . $transactionHash);
+
+                    // ADD THE POLLING CODE HERE
+                    $maxAttempts = 5;
+                    $attempt = 0;
+                    $confirmed = false;
+
+                    while ($attempt < $maxAttempts && !$confirmed) {
+                        $attempt++;
+                        Log::info("Polling for transaction receipt, attempt $attempt/$maxAttempts");
+                        
+                        try {
+                            sleep(2); // Wait 2 seconds between attempts
+                            
+                            // Use getTransactionReceipt instead of getTransaction
+                            $this->web3->eth->getTransactionReceipt($transactionHash, function ($err, $receipt) use (&$confirmed, $transactionHash) {
+                                if ($err) {
+                                    Log::error('Error checking transaction receipt: ' . $err->getMessage());
+                                    return;
+                                }
+                                
+                                if ($receipt) {
+                                    Log::info('Transaction receipt found: ' . $transactionHash);
+                                    $status = isset($receipt->status) ? $receipt->status : 'unknown';
+                                    Log::info('Transaction status: ' . $status);
+                                    $confirmed = true;
+                                } else {
+                                    Log::info('Transaction pending (no receipt yet): ' . $transactionHash);
+                                }
+                            });
+                        } catch (\Exception $e) {
+                            Log::error('Error polling for transaction receipt: ' . $e->getMessage());
+                        }
+                    }
+
+                    if (!$confirmed) {
+                        Log::warning('Transaction may still be pending: ' . $transactionHash);
+                        Log::warning('Check status manually on Etherscan');
+                    }
                     
-                    // Check for transaction confirmation
                     $this->checkTransactionConfirmation($document);
                     
                     return true;
@@ -326,11 +490,15 @@ class BlockchainService
                 
             } catch (\Exception $e) {
                 Log::error('Error signing or sending transaction: ' . $e->getMessage());
+                $document->blockchain_status = 'failed';
+                $document->save();
                 return false;
             }
             
         } catch (\Exception $e) {
             Log::error('Blockchain service error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+            $document->blockchain_status = 'failed';
+            $document->save();
             return false;
         }
     }
@@ -378,6 +546,62 @@ class BlockchainService
         }
     }
     
+    /**
+     * Check account balance and log warning if too low
+     */
+    protected function checkAccountBalance()
+    {
+        try {
+            $balancePromise = new Promise(function ($resolve, $reject) {
+                $this->web3->eth->getBalance($this->accountAddress, 'latest', function ($err, $balance) use ($resolve, $reject) {
+                    if ($err) {
+                        Log::error('Error checking account balance: ' . $err->getMessage());
+                        $reject($err);
+                        return;
+                    }
+                    
+                    $resolve($balance);
+                });
+            });
+            
+            // Wait for the balance check
+            $balance = $balancePromise->wait();
+            
+            // Log raw balance for debugging
+            Log::info('Raw balance type: ' . gettype($balance) . ' value: ' . (string)$balance);
+            
+            // Convert BigInteger to string
+            if (is_object($balance) && method_exists($balance, 'toString')) {
+                $balanceInWei = $balance->toString();
+                Log::info('Balance from BigInteger toString(): ' . $balanceInWei);
+            } else if (is_object($balance)) {
+                $balanceInWei = (string)$balance;
+                Log::info('Balance from object cast: ' . $balanceInWei);
+            } else if (substr((string)$balance, 0, 2) === '0x') {
+                $balanceInWei = hexdec((string)$balance);
+                Log::info('Balance from hexdec: ' . $balanceInWei);
+            } else {
+                $balanceInWei = (string)$balance;
+                Log::info('Balance from string cast: ' . $balanceInWei);
+            }
+            
+            // Convert Wei to ETH safely using bcmath
+            $balanceInEth = bcdiv($balanceInWei, bcpow(10, 18, 0), 18);
+            Log::info('Account balance: ' . $balanceInEth . ' ETH');
+            
+            // Warn if balance is low (less than 0.01 ETH)
+            if (bccomp($balanceInEth, '0.01', 18) < 0) {
+                Log::warning(
+                    'WARNING: Account balance is very low (' . $balanceInEth . ' ETH). ' .
+                    'This may cause transaction failures due to insufficient funds. ' .
+                    'Consider adding ETH to account: ' . $this->accountAddress
+                );
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to check account balance: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+        }
+    }
+    
     public function checkTransactionStatus($transactionHash)
     {
         try {
@@ -414,9 +638,6 @@ class BlockchainService
         try {
             // Log verification attempt
             Log::info("Attempting to verify document hash on blockchain: $hash");
-            
-            // Even if transaction hash is provided, we're going to verify directly on blockchain
-            // as that's the most accurate method
             
             // Verify directly on the blockchain using the contract's verifyDocument function
             $verified = false;
