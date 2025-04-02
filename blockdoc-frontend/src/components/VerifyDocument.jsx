@@ -87,7 +87,7 @@ const VerifyDocument = () => {
               <p>Registered on: {new Date(verificationResult.timestamp).toLocaleString()}</p>
               <p>Transaction Hash: {verificationResult.transaction_hash}</p>
               <a 
-                href={`https://etherscan.io/tx/${verificationResult.transaction_hash}`} 
+                href={`https://sepolia.etherscan.io/tx/${verificationResult.transaction_hash}`} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="etherscan-link"
