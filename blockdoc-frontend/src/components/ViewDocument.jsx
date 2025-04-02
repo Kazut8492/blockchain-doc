@@ -43,7 +43,7 @@ const ViewDocument = () => {
               <p>Verified on Blockchain</p>
               <p>Transaction Hash: {documentData.transaction_hash}</p>
               <a 
-                href={`https://etherscan.io/tx/${documentData.transaction_hash}`} 
+                href={`https://sepolia.etherscan.io/tx/${documentData.transaction_hash}`} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="etherscan-link"
