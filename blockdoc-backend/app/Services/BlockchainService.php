@@ -51,15 +51,15 @@ class BlockchainService
             // If neither format is found, use the default ABI
             else {
                 Log::warning('ABI format not recognized, using default ABI');
-                $this->contract = new Contract($this->web3->provider, $this->getDefaultContractAbi());
+                // $this->contract = new Contract($this->web3->provider, $this->getDefaultContractAbi());
             }
             
             // Set contract address immediately
             $this->contract->at($this->contractAddress);
         } catch (\Exception $e) {
             Log::error('Error loading contract ABI: ' . $e->getMessage());
-            // Fallback to default ABI
-            $this->contract = new Contract($this->web3->provider, $this->getDefaultContractAbi());
+            // // Fallback to default ABI
+            // $this->contract = new Contract($this->web3->provider, $this->getDefaultContractAbi());
             // Set contract address immediately
             $this->contract->at($this->contractAddress);
         }
@@ -68,123 +68,123 @@ class BlockchainService
     /**
      * Get the default contract ABI array directly
      */
-    protected function getDefaultContractAbi()
-    {
-        return [
-            [
-                "inputs" => [],
-                "stateMutability" => "nonpayable",
-                "type" => "constructor"
-            ],
-            [
-                "anonymous" => false,
-                "inputs" => [
-                    [
-                        "indexed" => true,
-                        "internalType" => "string",
-                        "name" => "documentHash",
-                        "type" => "string"
-                    ],
-                    [
-                        "indexed" => false,
-                        "internalType" => "uint256",
-                        "name" => "timestamp",
-                        "type" => "uint256"
-                    ]
-                ],
-                "name" => "DocumentRegistered",
-                "type" => "event"
-            ],
-            [
-                "inputs" => [
-                    [
-                        "internalType" => "string",
-                        "name" => "documentHash",
-                        "type" => "string"
-                    ]
-                ],
-                "name" => "getDocumentTimestamp",
-                "outputs" => [
-                    [
-                        "internalType" => "uint256",
-                        "name" => "",
-                        "type" => "uint256"
-                    ]
-                ],
-                "stateMutability" => "view",
-                "type" => "function"
-            ],
-            [
-                "inputs" => [],
-                "name" => "owner",
-                "outputs" => [
-                    [
-                        "internalType" => "address",
-                        "name" => "",
-                        "type" => "address"
-                    ]
-                ],
-                "stateMutability" => "view",
-                "type" => "function"
-            ],
-            [
-                "inputs" => [
-                    [
-                        "internalType" => "string",
-                        "name" => "documentHash",
-                        "type" => "string"
-                    ]
-                ],
-                "name" => "registerDocument",
-                "outputs" => [
-                    [
-                        "internalType" => "bool",
-                        "name" => "",
-                        "type" => "bool"
-                    ]
-                ],
-                "stateMutability" => "nonpayable",
-                "type" => "function"
-            ],
-            [
-                "inputs" => [
-                    [
-                        "internalType" => "address",
-                        "name" => "newOwner",
-                        "type" => "address"
-                    ]
-                ],
-                "name" => "transferOwnership",
-                "outputs" => [],
-                "stateMutability" => "nonpayable",
-                "type" => "function"
-            ],
-            [
-                "inputs" => [
-                    [
-                        "internalType" => "string",
-                        "name" => "documentHash",
-                        "type" => "string"
-                    ]
-                ],
-                "name" => "verifyDocument",
-                "outputs" => [
-                    [
-                        "internalType" => "bool",
-                        "name" => "",
-                        "type" => "bool"
-                    ],
-                    [
-                        "internalType" => "uint256",
-                        "name" => "",
-                        "type" => "uint256"
-                    ]
-                ],
-                "stateMutability" => "view",
-                "type" => "function"
-            ]
-        ];
-    }
+    // protected function getDefaultContractAbi()
+    // {
+    //     return [
+    //         [
+    //             "inputs" => [],
+    //             "stateMutability" => "nonpayable",
+    //             "type" => "constructor"
+    //         ],
+    //         [
+    //             "anonymous" => false,
+    //             "inputs" => [
+    //                 [
+    //                     "indexed" => true,
+    //                     "internalType" => "string",
+    //                     "name" => "documentHash",
+    //                     "type" => "string"
+    //                 ],
+    //                 [
+    //                     "indexed" => false,
+    //                     "internalType" => "uint256",
+    //                     "name" => "timestamp",
+    //                     "type" => "uint256"
+    //                 ]
+    //             ],
+    //             "name" => "DocumentRegistered",
+    //             "type" => "event"
+    //         ],
+    //         [
+    //             "inputs" => [
+    //                 [
+    //                     "internalType" => "string",
+    //                     "name" => "documentHash",
+    //                     "type" => "string"
+    //                 ]
+    //             ],
+    //             "name" => "getDocumentTimestamp",
+    //             "outputs" => [
+    //                 [
+    //                     "internalType" => "uint256",
+    //                     "name" => "",
+    //                     "type" => "uint256"
+    //                 ]
+    //             ],
+    //             "stateMutability" => "view",
+    //             "type" => "function"
+    //         ],
+    //         [
+    //             "inputs" => [],
+    //             "name" => "owner",
+    //             "outputs" => [
+    //                 [
+    //                     "internalType" => "address",
+    //                     "name" => "",
+    //                     "type" => "address"
+    //                 ]
+    //             ],
+    //             "stateMutability" => "view",
+    //             "type" => "function"
+    //         ],
+    //         [
+    //             "inputs" => [
+    //                 [
+    //                     "internalType" => "string",
+    //                     "name" => "documentHash",
+    //                     "type" => "string"
+    //                 ]
+    //             ],
+    //             "name" => "registerDocument",
+    //             "outputs" => [
+    //                 [
+    //                     "internalType" => "bool",
+    //                     "name" => "",
+    //                     "type" => "bool"
+    //                 ]
+    //             ],
+    //             "stateMutability" => "nonpayable",
+    //             "type" => "function"
+    //         ],
+    //         [
+    //             "inputs" => [
+    //                 [
+    //                     "internalType" => "address",
+    //                     "name" => "newOwner",
+    //                     "type" => "address"
+    //                 ]
+    //             ],
+    //             "name" => "transferOwnership",
+    //             "outputs" => [],
+    //             "stateMutability" => "nonpayable",
+    //             "type" => "function"
+    //         ],
+    //         [
+    //             "inputs" => [
+    //                 [
+    //                     "internalType" => "string",
+    //                     "name" => "documentHash",
+    //                     "type" => "string"
+    //                 ]
+    //             ],
+    //             "name" => "verifyDocument",
+    //             "outputs" => [
+    //                 [
+    //                     "internalType" => "bool",
+    //                     "name" => "",
+    //                     "type" => "bool"
+    //                 ],
+    //                 [
+    //                     "internalType" => "uint256",
+    //                     "name" => "",
+    //                     "type" => "uint256"
+    //                 ]
+    //             ],
+    //             "stateMutability" => "view",
+    //             "type" => "function"
+    //         ]
+    //     ];
+    // }
     
     public function registerDocument(Document $document)
     {
