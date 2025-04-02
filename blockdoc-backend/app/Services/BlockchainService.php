@@ -25,42 +25,41 @@ class BlockchainService
     
     public function __construct()
     {
-        // Get configuration values
+        // 設定値を取得
         $this->contractAddress = config('blockchain.contract_address');
         $this->accountAddress = config('blockchain.account_address');
         $this->privateKey = config('blockchain.private_key');
         
-        // Initialize Web3 with proper provider setup
+        // Web3初期化
         $providerUrl = config('blockchain.provider_url');
         $requestManager = new HttpRequestManager($providerUrl, 10);
         $provider = new HttpProvider($requestManager);
         $this->web3 = new Web3($provider);
         
         try {
-            // Get ABI from the contract JSON file
+            // ABIをJSONファイルから取得
             $contractAbi = json_decode(file_get_contents(storage_path('app/contract/DocumentVerification.json')), true);
             
-            // If the JSON is already an array, use it directly (no 'abi' key needed)
+            // JSONが配列の場合、直接使用
             if (isset($contractAbi[0])) {
                 $this->contract = new Contract($this->web3->provider, $contractAbi);
             } 
-            // Otherwise, look for the 'abi' key
+            // 'abi'キーがある場合はそれを使用
             else if (isset($contractAbi['abi'])) {
                 $this->contract = new Contract($this->web3->provider, $contractAbi['abi']);
             }
-            // If neither format is found, use the default ABI
+            // 形式が認識できない場合はデフォルトABIを使用
             else {
                 Log::warning('ABI format not recognized, using default ABI');
                 $this->contract = new Contract($this->web3->provider, $this->getDefaultContractAbi());
             }
             
-            // Set contract address immediately
+            // コントラクトアドレスを設定
             $this->contract->at($this->contractAddress);
         } catch (\Exception $e) {
             Log::error('Error loading contract ABI: ' . $e->getMessage());
-            // Fallback to default ABI
+            // デフォルトABIにフォールバック
             $this->contract = new Contract($this->web3->provider, $this->getDefaultContractAbi());
-            // Set contract address immediately
             $this->contract->at($this->contractAddress);
         }
     }
@@ -70,6 +69,7 @@ class BlockchainService
      */
     protected function getDefaultContractAbi()
     {
+        // bytes32型を使用する最適化されたABI
         return [
             [
                 "inputs" => [],
@@ -80,10 +80,10 @@ class BlockchainService
                 "anonymous" => false,
                 "inputs" => [
                     [
-                        "indexed" => true,
-                        "internalType" => "string",
+                        "indexed" => false,
+                        "internalType" => "bytes32",
                         "name" => "documentHash",
-                        "type" => "string"
+                        "type" => "bytes32"
                     ],
                     [
                         "indexed" => false,
@@ -98,9 +98,9 @@ class BlockchainService
             [
                 "inputs" => [
                     [
-                        "internalType" => "string",
+                        "internalType" => "bytes32",
                         "name" => "documentHash",
-                        "type" => "string"
+                        "type" => "bytes32"
                     ]
                 ],
                 "name" => "getDocumentTimestamp",
@@ -130,9 +130,9 @@ class BlockchainService
             [
                 "inputs" => [
                     [
-                        "internalType" => "string",
+                        "internalType" => "bytes32",
                         "name" => "documentHash",
-                        "type" => "string"
+                        "type" => "bytes32"
                     ]
                 ],
                 "name" => "registerDocument",
@@ -162,9 +162,9 @@ class BlockchainService
             [
                 "inputs" => [
                     [
-                        "internalType" => "string",
+                        "internalType" => "bytes32",
                         "name" => "documentHash",
-                        "type" => "string"
+                        "type" => "bytes32"
                     ]
                 ],
                 "name" => "verifyDocument",
@@ -185,45 +185,39 @@ class BlockchainService
             ]
         ];
     }
+
+    protected function convertToBytes32($sha512Hash)
+    {
+        // SHA512ハッシュをkeccak256でハッシュ化して変換
+        return \Web3\Utils::sha3($sha512Hash);
+    }
     
     public function registerDocument(Document $document)
     {
         try {
-            // Log important information
+            // 重要な情報をログに記録
             Log::info('Attempting to register document with hash: ' . $document->hash);
             Log::info('Using contract address: ' . $this->contractAddress);
             Log::info('Using account address: ' . $this->accountAddress);
             Log::info('Private key length: ' . strlen($this->privateKey));
             
-            // IMPORTANT: Get the encoded data for the contract call
-            // This creates the function signature and parameters formatted for the EVM
-            $data = $this->contract->getData('registerDocument', $document->hash);
+            // *** 最適化1: SHA512ハッシュをkeccak256に変換 ***
+            $bytes32Hash = $this->convertToBytes32($document->hash);
+            Log::info('Original SHA512 hash: ' . $document->hash);
+            Log::info('Converted to bytes32 hash: ' . $bytes32Hash);
+            
+            // コントラクト呼び出しデータの取得
+            $data = $this->contract->getData('registerDocument', $bytes32Hash);
             if (!$data) {
                 Log::error('Failed to encode contract method data');
                 return false;
             }
             
-            // Get current gas price
-            $gasPrice = null;
-            $gasPricePromise = new Promise(function ($resolve, $reject) use (&$gasPrice) {
-                $this->web3->eth->gasPrice(function ($err, $price) use (&$gasPrice, $resolve, $reject) {
-                    if ($err) {
-                        Log::error('Error getting gas price: ' . $err->getMessage());
-                        $reject($err);
-                        return;
-                    }
-                    $gasPrice = $price;
-                    $resolve($price);
-                });
-            });
-            $gasPricePromise->wait();
+            // *** 最適化2: ガス価格を固定 ***
+            $gasPrice = '0x' . dechex(10 * pow(10, 9)); // 10 Gwei
+            Log::info('Using fixed gas price: 10 Gwei');
             
-            if (!$gasPrice) {
-                // Default gas price (50 Gwei for Sepolia)
-                $gasPrice = '0x' . dechex(50 * pow(10, 9));
-            }
-            
-            // Get nonce for the account
+            // ノンス取得
             $nonce = null;
             $noncePromise = new Promise(function ($resolve, $reject) use (&$nonce) {
                 $this->web3->eth->getTransactionCount(
@@ -249,32 +243,29 @@ class BlockchainService
                 return false;
             }
             
-            // Set gas limit
-            $gas = config('blockchain.gas_limit', 200000);
+            // *** 最適化3: ガスリミットを削減 ***
+            $gas = 100000; // 以前は 200000
+            Log::info('Using reduced gas limit: ' . $gas);
             
-            // *** DIRECT RPC METHOD APPROACH ***
-            // We'll directly use the Alchemy API to send the raw transaction
-            
-            // 1. Prepare transaction parameters
+            // トランザクションパラメータ準備
             $txParams = [
                 'nonce' => '0x' . dechex($nonce),
                 'gasPrice' => $gasPrice, 
                 'gas' => '0x' . dechex($gas),
                 'to' => $this->contractAddress,
                 'value' => '0x0',
-                'data' => $data, // The encoded contract method call
-                'chainId' => '0xaa36a7' // 11155111 for Sepolia
+                'data' => $data,
+                'chainId' => '0xaa36a7' // Sepolia
             ];
             
-            // 2. Create and sign the transaction
-            // Make sure to require the package: composer require kornrunner/ethereum-offline-raw-tx
+            // トランザクション作成・署名
             try {
-                // Convert gasPrice to decimal if it's in hex
+                // ガス価格を10進数に変換
                 $gasPriceValue = is_string($gasPrice) && substr($gasPrice, 0, 2) === '0x' 
                     ? hexdec($gasPrice) 
                     : $gasPrice;
                 
-                // Create transaction object
+                // トランザクションオブジェクト作成
                 $transaction = new Transaction(
                     $nonce,
                     $gasPriceValue,
@@ -282,14 +273,14 @@ class BlockchainService
                     $this->contractAddress,
                     0, // value
                     $data, 
-                    11155111 // chainId for Sepolia
+                    11155111 // Sepolia chainId
                 );
                 
-                // Sign the transaction
+                // トランザクション署名
                 $signedTransaction = '0x' . $transaction->getRaw($this->privateKey);
                 Log::info('Transaction signed successfully');
                 
-                // 3. Send the raw transaction
+                // RPC呼び出しでトランザクション送信
                 $providerUrl = config('blockchain.provider_url');
                 $response = Http::post($providerUrl, [
                     'jsonrpc' => '2.0',
@@ -308,14 +299,14 @@ class BlockchainService
                 if (isset($result['result'])) {
                     $transactionHash = $result['result'];
                     
-                    // Update document with transaction hash
+                    // ドキュメントのトランザクションハッシュを更新
                     $document->transaction_hash = $transactionHash;
                     $document->blockchain_network = config('blockchain.network_name', 'Sepolia Testnet');
                     $document->save();
                     
                     Log::info('Document registered on blockchain: ' . $transactionHash);
                     
-                    // Check for transaction confirmation
+                    // トランザクション確認をチェック
                     $this->checkTransactionConfirmation($document);
                     
                     return true;
@@ -334,53 +325,99 @@ class BlockchainService
             return false;
         }
     }
-    
-    public function checkTransactionConfirmation(Document $document)
+
+    /**
+     * 統合されたトランザクション確認メソッド
+     * 以前のcheckTransactionConfirmationとcheckTransactionStatusを置き換える
+     *
+     * @param Document $document
+     * @return bool トランザクションが確認されたかどうか
+     */
+    public function checkTransaction(Document $document)
     {
         try {
-            $receiptPromise = new Promise(function ($resolve, $reject) use ($document) {
-                $this->web3->eth->getTransactionReceipt($document->transaction_hash, function ($err, $receipt) use ($document, $resolve, $reject) {
-                    if ($err) {
-                        Log::error('Error checking transaction: ' . $err->getMessage());
-                        $reject($err);
-                        return;
-                    }
-                    
-                    if ($receipt && isset($receipt->status) && $receipt->status == '0x1') {
-                        // Transaction confirmed
-                        $document->blockchain_status = 'confirmed';
-                        $document->blockchain_timestamp = now();
-                        $document->save();
+            if (empty($document->transaction_hash)) {
+                Log::warning('Document has no transaction hash: ' . $document->id);
+                return false;
+            }
+
+            Log::info('Checking transaction: ' . $document->transaction_hash . ' for document: ' . $document->id);
+            
+            $receipt = null;
+            $confirmed = false;
+            
+            $receiptPromise = new Promise(function ($resolve, $reject) use ($document, &$receipt) {
+                $this->web3->eth->getTransactionReceipt(
+                    $document->transaction_hash,
+                    function ($err, $rcpt) use (&$receipt, $resolve, $reject) {
+                        if ($err) {
+                            Log::error('Error checking transaction: ' . $err->getMessage());
+                            $reject($err);
+                            return;
+                        }
                         
-                        Log::info('Document transaction confirmed: ' . $document->transaction_hash);
-                        $resolve(true);
-                    } else if ($receipt) {
-                        // Transaction found but not successful
-                        $document->blockchain_status = 'failed';
-                        $document->save();
-                        Log::warning('Document transaction failed: ' . $document->transaction_hash);
-                        $resolve(false);
-                    } else {
-                        // Transaction not yet confirmed
-                        Log::info('Transaction not yet confirmed: ' . $document->transaction_hash);
-                        $resolve(false);
+                        $receipt = $rcpt;
+                        $resolve($rcpt);
                     }
-                });
+                );
             });
             
             // Wait for the receipt to be checked
-            $confirmed = $receiptPromise->wait();
+            $receiptPromise->wait();
+            
+            // 値が取得できた場合に処理
+            if ($receipt && isset($receipt->status)) {
+                if ($receipt->status == '0x1') {
+                    // Transaction confirmed
+                    $document->blockchain_status = 'confirmed';
+                    $document->blockchain_timestamp = now();
+                    $document->save();
+                    
+                    Log::info('Document transaction confirmed: ' . $document->transaction_hash);
+                    $confirmed = true;
+                } else {
+                    // Transaction failed
+                    $document->blockchain_status = 'failed';
+                    $document->save();
+                    Log::warning('Document transaction failed: ' . $document->transaction_hash);
+                    $confirmed = false;
+                }
+            } else {
+                // Receipt not found or status not available
+                Log::info('Transaction not yet confirmed or not found: ' . $document->transaction_hash);
+                $confirmed = false;
+            }
             
             return $confirmed;
         } catch (\Exception $e) {
-            Log::error('Error checking transaction confirmation: ' . $e->getMessage());
+            Log::error('Error checking transaction: ' . $e->getMessage(), [
+                'document_id' => $document->id,
+                'transaction_hash' => $document->transaction_hash,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return false;
         }
+    }
+
+    public function checkTransactionConfirmation(Document $document)
+    {
+        return $this->checkTransaction($document);
     }
     
     public function checkTransactionStatus($transactionHash)
     {
         try {
+            // Find document with this transaction hash
+            $document = Document::where('transaction_hash', $transactionHash)->first();
+            
+            if ($document) {
+                // Use the integrated method but don't save changes
+                $confirmed = $this->checkTransaction($document);
+                return $confirmed;
+            }
+            
+            // If no document found, do a direct transaction check
             $confirmed = false;
             $statusPromise = new Promise(function ($resolve, $reject) use ($transactionHash, &$confirmed) {
                 $this->web3->eth->getTransactionReceipt($transactionHash, function ($err, $receipt) use (&$confirmed, $resolve, $reject) {
@@ -400,7 +437,7 @@ class BlockchainService
             });
             
             // Wait for the status to be checked
-            $confirmed = $statusPromise->wait();
+            $statusPromise->wait();
             
             return $confirmed;
         } catch (\Exception $e) {
@@ -412,33 +449,35 @@ class BlockchainService
     public function verifyDocumentHash($hash, $transactionHash = null)
     {
         try {
-            // Log verification attempt
+            // ハッシュのブロックチェーン上での検証試行をログに記録
             Log::info("Attempting to verify document hash on blockchain: $hash");
             
-            // Even if transaction hash is provided, we're going to verify directly on blockchain
-            // as that's the most accurate method
+            // *** 最適化: SHA512ハッシュをkeccak256に変換 ***
+            $bytes32Hash = $this->convertToBytes32($hash);
+            Log::info("Original SHA512 hash: $hash");
+            Log::info("Converted to bytes32 hash: $bytes32Hash");
             
-            // Verify directly on the blockchain using the contract's verifyDocument function
+            // ブロックチェーン上で直接検証
             $verified = false;
             $timestamp = 0;
             
-            $verifyPromise = new Promise(function ($resolve, $reject) use ($hash, &$verified, &$timestamp) {
-                $this->contract->call('verifyDocument', $hash, function ($err, $result) use (&$verified, &$timestamp, $resolve, $reject, $hash) {
+            $verifyPromise = new Promise(function ($resolve, $reject) use ($bytes32Hash, &$verified, &$timestamp) {
+                $this->contract->call('verifyDocument', $bytes32Hash, function ($err, $result) use (&$verified, &$timestamp, $resolve, $reject, $bytes32Hash) {
                     if ($err) {
                         Log::error('Blockchain verification error: ' . $err->getMessage());
                         $reject($err);
                         return;
                     }
                     
-                    // Log the full result for debugging
-                    Log::info('Verification result for hash ' . $hash . ': ' . json_encode($result));
+                    // デバッグ用に結果を記録
+                    Log::info('Verification result for hash ' . $bytes32Hash . ': ' . json_encode($result));
                     
-                    // $result[0] should be true/false indicating if document exists
-                    // $result[1] should be the timestamp when document was registered
+                    // $result[0] はドキュメントが存在するかどうかを示す真偽値
+                    // $result[1] はドキュメントが登録されたタイムスタンプ
                     if (isset($result[0]) && $result[0] === true) {
                         $verified = true;
                         
-                        // Get timestamp if available
+                        // タイムスタンプがある場合は取得
                         if (isset($result[1])) {
                             $timestamp = hexdec($result[1]->value);
                             Log::info("Document verified on blockchain with timestamp: $timestamp");
@@ -452,20 +491,20 @@ class BlockchainService
                 });
             });
             
-            // Wait for verification to complete
+            // 検証完了を待機
             $result = $verifyPromise->wait();
             
-            // If the main verification failed but we have a transaction hash,
-            // double-check if the transaction itself is valid as a fallback
+            // メイン検証に失敗したがトランザクションハッシュがある場合、
+            // フォールバックとしてトランザクションの有効性を確認
             if (!$result['verified'] && $transactionHash) {
                 Log::info("Primary verification failed, checking transaction status as fallback: $transactionHash");
                 $txConfirmed = $this->checkTransactionStatus($transactionHash);
                 
                 if ($txConfirmed) {
                     Log::info("Transaction confirmed but document not found in contract. This might indicate contract data issue.");
-                    // We could return true here, but this is a partial verification at best
-                    // Since the contract doesn't have the data but transaction exists
-                    // For security, we'll still return false
+                    // コントラクトにデータがなくトランザクションが存在する場合、
+                    // これは部分的な検証に過ぎない
+                    // セキュリティのため、falseを返す
                     return false;
                 }
             }

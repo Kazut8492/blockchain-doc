@@ -19,5 +19,5 @@ return [
     'gas_limit' => env('BLOCKCHAIN_GAS_LIMIT', 100000),
     
     // Gas price in Gwei
-    'gas_price' => env('BLOCKCHAIN_GAS_PRICE', 20),
+    'gas_price' => env('BLOCKCHAIN_GAS_PRICE', 10),
 ];

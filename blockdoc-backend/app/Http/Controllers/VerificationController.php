@@ -102,7 +102,8 @@ class VerificationController extends Controller
             
             // Try to verify using transaction hash as fallback
             if ($document->transaction_hash) {
-                $txVerified = $this->blockchainService->checkTransactionStatus($document->transaction_hash);
+                // 統合されたcheckTransactionメソッドを使用
+                $txVerified = $this->blockchainService->checkTransaction($document);
                 
                 if ($txVerified) {
                     return response()->json([
@@ -242,7 +243,7 @@ class VerificationController extends Controller
         } else {
             // Fallback transaction verification
             if ($document->transaction_hash) {
-                $txVerified = $this->blockchainService->checkTransactionStatus($document->transaction_hash);
+                $txVerified = $this->blockchainService->checkTransaction($document);
                 
                 if ($txVerified) {
                     return response()->json([

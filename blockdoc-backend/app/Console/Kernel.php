@@ -8,18 +8,36 @@ use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
 class Kernel extends ConsoleKernel
 {
     /**
-     * Define the application's command schedule.
+     * The Artisan commands provided by your application.
+     *
+     * @var array
      */
-    protected function schedule(Schedule $schedule): void
+    protected $commands = [
+        \App\Console\Commands\CheckPendingTransactions::class,
+        \App\Console\Commands\BlockchainDebug::class,
+    ];
+
+    /**
+     * Define the application's command schedule.
+     *
+     * @param  \Illuminate\Console\Scheduling\Schedule  $schedule
+     * @return void
+     */
+    protected function schedule(Schedule $schedule)
     {
-        // Check pending blockchain transactions every 10 minutes
-        $schedule->command('blockchain:check-pending')->everyTenMinutes();
+        // Run every 5 minutes to check pending blockchain transactions
+        $schedule->command('blockchain:check-pending')
+                ->everyFiveMinutes()
+                ->withoutOverlapping()
+                ->appendOutputTo(storage_path('logs/blockchain-check.log'));
     }
 
     /**
      * Register the commands for the application.
+     *
+     * @return void
      */
-    protected function commands(): void
+    protected function commands()
     {
         $this->load(__DIR__.'/Commands');
 

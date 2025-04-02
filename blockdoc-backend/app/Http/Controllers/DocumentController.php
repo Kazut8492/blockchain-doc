@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use App\Services\BlockchainService;
 use Illuminate\Support\Facades\Log;
+use App\Jobs\RegisterDocumentOnBlockchain;
 
 class DocumentController extends Controller
 {
@@ -36,7 +37,7 @@ class DocumentController extends Controller
             // Store file
             $path = $file->storeAs('documents', $filename);
             
-            // ストリーミング処理でファイルハッシュを計算
+            // Calculate file hash using streaming
             $hashContext = hash_init('sha512');
             $handle = fopen(storage_path('app/private/' . $path), 'rb');
             if ($handle === false) {
@@ -74,21 +75,8 @@ class DocumentController extends Controller
             
             Log::info('Document saved with hash: ' . $hash);
             
-            // Register document on blockchain (asynchronously)
-            $registered = $this->blockchainService->registerDocument($document);
-            
-            if (!$registered) {
-                // If blockchain registration fails, still keep the document but mark as failed
-                $document->blockchain_status = 'failed';
-                $document->save();
-                
-                Log::error('Failed to register document on blockchain: ' . $hash);
-                
-                return response()->json([
-                    'message' => 'Document saved but blockchain registration failed',
-                    'document' => $document
-                ], 500);
-            }
+            // Dispatch job to register document on blockchain (asynchronously)
+            RegisterDocumentOnBlockchain::dispatch($document);
             
             return response()->json([
                 'message' => 'Document uploaded and blockchain registration initiated',
@@ -104,10 +92,10 @@ class DocumentController extends Controller
         }
     }
     
-    // PHP の最大アップロードサイズを取得するヘルパーメソッド
+    // Helper method to get maximum PHP upload size
     private function getMaximumFileUploadSize()
     {
-        // ストリームラッパーでの最大サイズを計算
+        // Calculate maximum size from PHP settings
         $upload_max_filesize = $this->parseSize(ini_get('upload_max_filesize'));
         $post_max_size = $this->parseSize(ini_get('post_max_size'));
         return min($upload_max_filesize, $post_max_size);
@@ -137,7 +125,7 @@ class DocumentController extends Controller
     public function download(Document $document, Request $request)
     {
         try {
-            // デバッグ用にパス情報をログに記録
+            // Debug path information
             Log::info('Requested file path: ' . $document->path);
             Log::info('Full storage path: ' . storage_path('app/' . $document->path));
             
@@ -171,7 +159,7 @@ class DocumentController extends Controller
         
         // If has transaction hash but not confirmed, check confirmation
         if ($document->transaction_hash) {
-            $confirmed = $this->blockchainService->checkTransactionConfirmation($document);
+            $confirmed = $this->blockchainService->checkTransaction($document);
             
             // Refresh document data
             $document->refresh();

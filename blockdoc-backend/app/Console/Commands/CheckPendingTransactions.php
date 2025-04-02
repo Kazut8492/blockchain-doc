@@ -34,16 +34,24 @@ class CheckPendingTransactions extends Command
             try {
                 $this->info("Checking document ID: {$document->id}, transaction: {$document->transaction_hash}");
                 
-                $confirmed = $this->blockchainService->checkTransactionStatus($document->transaction_hash);
+                // 統合されたcheckTransactionメソッドを使用
+                // これはドキュメントのステータスも自動的に更新します
+                $confirmed = $this->blockchainService->checkTransaction($document);
                 
                 if ($confirmed) {
-                    $document->blockchain_status = 'confirmed';
-                    $document->blockchain_timestamp = now();
-                    $document->save();
-                    
+                    // ステータスは既にserviceで更新されているため、ここでは更新しない
                     $this->info("Document ID: {$document->id} confirmed on blockchain.");
                 } else {
                     $this->info("Document ID: {$document->id} still pending.");
+                    
+                    // トランザクション送信からの経過時間をチェック
+                    $hoursElapsed = $document->updated_at->diffInHours(now());
+                    
+                    // トランザクションが24時間以上pending状態の場合、警告ログを記録
+                    if ($hoursElapsed >= 24) {
+                        $this->warn("Document ID: {$document->id} has been pending for {$hoursElapsed} hours.");
+                        Log::warning("Transaction pending for {$hoursElapsed} hours: {$document->transaction_hash}");
+                    }
                 }
             } catch (\Exception $e) {
                 $this->error("Error checking document ID: {$document->id}: " . $e->getMessage());
@@ -52,5 +60,11 @@ class CheckPendingTransactions extends Command
         }
         
         $this->info('Finished checking pending blockchain transactions.');
+        
+        // 失敗したトランザクションの数も報告
+        $failedCount = Document::where('blockchain_status', 'failed')->count();
+        if ($failedCount > 0) {
+            $this->warn("There are {$failedCount} failed blockchain transactions.");
+        }
     }
 }
