@@ -23,7 +23,6 @@ BlockDoc Verifyは、ブロックチェーン技術を使用して文書の真�
 -- 今回使用したコードに関しては、blockdoc-backend/DocumentVerification_example.solをご参照ください。
 - **ストレージ**: ローカルファイルストレージ（AWS S3オプションあり）
 - **データベース**: PostgreSQL
-- **キューシステム**: 非同期ブロックチェーン操作のためのRedis
 
 ## 前提条件
 
@@ -281,7 +280,6 @@ The application consists of:
 - **Blockchain**: Smart contract deployed on Ethereum Sepolia testnet
 - **Storage**: Local file storage (with option for AWS S3)
 - **Database**: PostgreSQL
-- **Queue System**: Redis for asynchronous blockchain operations
 
 ## Prerequisites
 
