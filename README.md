@@ -20,6 +20,7 @@ BlockDoc Verifyは、ブロックチェーン技術を使用して文書の真�
 - **フロントエンド**: Reactベースのユーザーインターフェース
 - **バックエンド**: Laravel API
 - **ブロックチェーン**: イーサリアムSepoliaテストネットにデプロイされたスマートコントラクト
+-- 今回使用したコードに関しては、blockdoc-backend/DocumentVerification_example.solをご参照ください。
 - **ストレージ**: ローカルファイルストレージ（AWS S3オプションあり）
 - **データベース**: PostgreSQL
 - **キューシステム**: 非同期ブロックチェーン操作のためのRedis
