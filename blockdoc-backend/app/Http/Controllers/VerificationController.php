@@ -19,7 +19,7 @@ class VerificationController extends Controller
     public function verify(Request $request)
     {
         $request->validate([
-            'document' => 'required|file|mimes:pdf|max:10240', // 10MB max
+            'document' => 'required|file|mimes:pdf|max:102400', // 100MB max
         ]);
 
         $file = $request->file('document');
