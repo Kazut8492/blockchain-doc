@@ -74,26 +74,9 @@ const DocumentList = () => {
                   <h3>{doc.original_filename || doc.filename}</h3>
                   <p>Uploaded: {new Date(doc.created_at).toLocaleDateString()}</p>
                   <p className="hash-preview">Hash: {doc.hash.substring(0, 16)}...</p>
-                  <div className="blockchain-status">
-                    {doc.blockchain_status === 'confirmed' ? (
-                      <span className="status-confirmed">Verified on Blockchain</span>
-                    ) : doc.blockchain_status === 'failed' ? (
-                      <span className="status-failed">Verification Failed</span>
-                    ) : (
-                      <span className="status-pending">Pending Confirmation</span>
-                    )}
-                  </div>
                 </div>
                 <div className="document-actions">
                   <Link to={`/documents/${doc.id}`} className="btn-secondary">View</Link>
-                  <a 
-                    href={`/api/documents/${doc.id}/download`} 
-                    className="btn-secondary"
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                  >
-                    Download
-                  </a>
                 </div>
               </div>
             ))}
