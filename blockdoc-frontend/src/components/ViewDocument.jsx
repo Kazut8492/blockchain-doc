@@ -37,26 +37,6 @@ const ViewDocument = () => {
       <div className="document-details">
         <p>Uploaded: {new Date(documentData.created_at).toLocaleDateString()}</p>
         <p className="hash">SHA512 Hash: {documentData.hash}</p>
-        <div className="blockchain-status">
-          {documentData.blockchain_status === 'confirmed' ? (
-            <div className="status-confirmed">
-              <p>Verified on Blockchain</p>
-              <p>Transaction Hash: {documentData.transaction_hash}</p>
-              <a 
-                href={`https://sepolia.etherscan.io/tx/${documentData.transaction_hash}`} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="etherscan-link"
-              >
-                View on Etherscan
-              </a>
-            </div>
-          ) : (
-            <div className="status-pending">
-              <p>Pending Blockchain Confirmation</p>
-            </div>
-          )}
-        </div>
       </div>
       
       <div className="pdf-viewer">
