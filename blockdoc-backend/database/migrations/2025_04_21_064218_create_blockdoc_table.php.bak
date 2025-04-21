@@ -1,0 +1,174 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('cache', function (Blueprint $table) {
+            $table->string('key')->primary();
+            $table->text('value');
+            $table->integer('expiration');
+        });
+
+        Schema::create('cache_locks', function (Blueprint $table) {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->integer('expiration');
+        });
+
+        Schema::create('documents', function (Blueprint $table) {
+            $table->bigIncrements('id');
+            $table->bigInteger('user_id')->nullable();
+            $table->string('filename');
+            $table->string('path');
+            $table->string('hash', 128);
+            $table->enum('blockchain_status', ['pending', 'confirmed', 'failed'])->default('pending');
+            $table->string('transaction_hash')->nullable();
+            $table->string('blockchain_network')->default('Sepolia Testnet');
+            $table->timestamp('blockchain_timestamp')->nullable();
+            $table->timestamps();
+            $table->string('original_filename')->nullable();
+            $table->string('mime_type')->nullable();
+            $table->bigInteger('size')->nullable();
+            $table->bigInteger('fiscal_entry_id')->nullable();
+        });
+
+        Schema::create('failed_jobs', function (Blueprint $table) {
+            $table->bigIncrements('id');
+            $table->string('uuid')->unique();
+            $table->text('connection');
+            $table->text('queue');
+            $table->text('payload');
+            $table->text('exception');
+            $table->timestamp('failed_at')->useCurrent();
+        });
+
+        Schema::create('fiscal_entries', function (Blueprint $table) {
+            $table->bigIncrements('id');
+            $table->bigInteger('user_id');
+            $table->string('fiscal_year');
+            $table->string('fiscal_period');
+            $table->string('document_type');
+            $table->string('creator');
+            $table->string('last_modifier')->nullable();
+            $table->string('status')->default('active');
+            $table->timestamps();
+        });
+
+        Schema::create('job_batches', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->string('name');
+            $table->integer('total_jobs');
+            $table->integer('pending_jobs');
+            $table->integer('failed_jobs');
+            $table->text('failed_job_ids');
+            $table->text('options')->nullable();
+            $table->integer('cancelled_at')->nullable();
+            $table->integer('created_at');
+            $table->integer('finished_at')->nullable();
+        });
+
+        Schema::create('jobs', function (Blueprint $table) {
+            $table->bigIncrements('id');
+            $table->string('queue')->index();
+            $table->text('payload');
+            $table->smallInteger('attempts');
+            $table->integer('reserved_at')->nullable();
+            $table->integer('available_at');
+            $table->integer('created_at');
+        });
+
+        Schema::create('password_reset_tokens', function (Blueprint $table) {
+            $table->string('email')->primary();
+            $table->string('token');
+            $table->timestamp('created_at')->nullable();
+        });
+
+        Schema::create('personal_access_tokens', function (Blueprint $table) {
+            $table->bigIncrements('id');
+            $table->string('tokenable_type');
+            $table->bigInteger('tokenable_id');
+            $table->string('name');
+            $table->string('token', 64)->unique();
+            $table->text('abilities')->nullable();
+            $table->timestamp('last_used_at')->nullable();
+            $table->timestamp('expires_at')->nullable();
+            $table->timestamps();
+
+            $table->index(['tokenable_type', 'tokenable_id']);
+        });
+
+        Schema::create('sessions', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->bigInteger('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->text('payload');
+            $table->integer('last_activity')->index();
+        });
+
+        Schema::create('users', function (Blueprint $table) {
+            $table->bigIncrements('id');
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->timestamp('email_verified_at')->nullable();
+            $table->string('password');
+            $table->rememberToken();
+            $table->timestamps();
+        });
+
+        Schema::table('documents', function (Blueprint $table) {
+            $table->foreign(['fiscal_entry_id'])->references(['id'])->on('fiscal_entries')->onUpdate('no action')->onDelete('set null');
+            $table->foreign(['user_id'])->references(['id'])->on('users')->onUpdate('no action')->onDelete('cascade');
+        });
+
+        Schema::table('fiscal_entries', function (Blueprint $table) {
+            $table->foreign(['user_id'])->references(['id'])->on('users')->onUpdate('no action')->onDelete('cascade');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('fiscal_entries', function (Blueprint $table) {
+            $table->dropForeign('fiscal_entries_user_id_foreign');
+        });
+
+        Schema::table('documents', function (Blueprint $table) {
+            $table->dropForeign('documents_fiscal_entry_id_foreign');
+            $table->dropForeign('documents_user_id_foreign');
+        });
+
+        Schema::dropIfExists('users');
+
+        Schema::dropIfExists('sessions');
+
+        Schema::dropIfExists('personal_access_tokens');
+
+        Schema::dropIfExists('password_reset_tokens');
+
+        Schema::dropIfExists('jobs');
+
+        Schema::dropIfExists('job_batches');
+
+        Schema::dropIfExists('fiscal_entries');
+
+        Schema::dropIfExists('failed_jobs');
+
+        Schema::dropIfExists('documents');
+
+        Schema::dropIfExists('cache_locks');
+
+        Schema::dropIfExists('cache');
+    }
+};
