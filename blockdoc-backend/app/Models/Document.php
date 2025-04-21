@@ -11,6 +11,7 @@ class Document extends Model
 
     protected $fillable = [
         'user_id',
+        'fiscal_entry_id', // New field
         'filename',
         'original_filename',
         'mime_type',
@@ -31,5 +32,10 @@ class Document extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+    
+    public function fiscalEntry()
+    {
+        return $this->belongsTo(FiscalEntry::class);
     }
 }

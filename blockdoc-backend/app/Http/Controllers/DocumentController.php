@@ -3,8 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Document;
+use App\Models\FiscalEntry;
+use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use App\Services\BlockchainService;
 use Illuminate\Support\Facades\Log;
@@ -19,15 +20,32 @@ class DocumentController extends Controller
     }
     
     /**
+     * Get the test user ID
+     */
+    private function getTestUserId()
+    {
+        // Get the test user or create if not exists
+        return User::where('email', 'test@example.com')->first()->id ?? 
+              User::create([
+                  'name' => 'Test User',
+                  'email' => 'test@example.com',
+                  'password' => bcrypt('password'),
+              ])->id;
+    }
+    
+    /**
      * Upload and register a new document
      */
     public function store(Request $request)
     {
         $request->validate([
             'document' => 'required|file|mimes:pdf|max:102400', // 100MB max
+            'fiscal_entry_id' => 'required|exists:fiscal_entries,id',
         ]);
 
         try {
+            $userId = $this->getTestUserId();
+            
             $file = $request->file('document');
             $filename = time() . '_' . $file->getClientOriginalName();
             
@@ -56,12 +74,20 @@ class DocumentController extends Controller
             $document->size = $file->getSize();
             $document->hash = $hash;
             $document->path = $path;
-            $document->user_id = Auth::id();
+            $document->user_id = $userId; // Always use the test user
+            $document->fiscal_entry_id = $request->fiscal_entry_id;
             $document->blockchain_status = 'pending';
             $document->blockchain_network = config('blockchain.network_name', 'Sepolia Testnet');
             $document->save();
             
             Log::info('Document saved with hash: ' . $hash);
+            
+            // Update the fiscal entry's last_modifier
+            $fiscalEntry = FiscalEntry::find($request->fiscal_entry_id);
+            if ($fiscalEntry) {
+                $fiscalEntry->last_modifier = 'Test User';
+                $fiscalEntry->save();
+            }
             
             // Register document on blockchain (asynchronously)
             $registered = $this->blockchainService->registerDocument($document);
@@ -164,8 +190,10 @@ class DocumentController extends Controller
      */
     public function index(Request $request)
     {
+        $userId = $this->getTestUserId();
+        
         // Get user's documents with pagination
-        $documents = Document::where('user_id', Auth::id())
+        $documents = Document::where('user_id', $userId)
             ->orderBy('created_at', 'desc')
             ->paginate(10);
             
